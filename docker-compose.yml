@@ -7,7 +7,7 @@ services:
     ports:
       - "7800:7800"
     volumes:
-      - ./config:/app/config
+      - ./catbox-imagehost:/app/config
     environment:
       PORT: "7800"
     healthcheck:
