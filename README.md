@@ -31,16 +31,67 @@ catbox-imagehost/
 │   ├── index.html
 │   ├── style.css
 │   └── app.js
+├── Dockerfile
+├── docker-compose.yml
+├── docker-entrypoint.sh
 └── run.sh
 ```
 
 ## 环境要求
 
-- Python 3.11 或更新版本
+- Docker 与 Docker Compose，或 Python 3.11 及更新版本
 - 可以访问 `https://catbox.moe`
 - 一个 Catbox 账号和 `userhash`
 
-## 安装与启动
+## Docker 部署
+
+推荐使用 Docker Compose，配置与历史记录会持久化到当前目录的 `config/`。
+`docker-compose.yml` 同时配置了 `image` 与 `build`，没有现成镜像时会从源码本地构建。
+
+```bash
+git clone https://github.com/uncat2310/catbox-imagehost.git
+cd catbox-imagehost
+docker compose up -d
+```
+
+启动后访问：
+
+```text
+http://服务器IP:7800/
+```
+
+查看日志：
+
+```bash
+docker compose logs -f
+```
+
+更新镜像：
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+也可以直接使用 `docker run`：
+
+```bash
+mkdir -p config
+docker run -d \
+  --name catbox-imagehost \
+  --restart unless-stopped \
+  -p 7800:7800 \
+  -v "$PWD/config:/app/config" \
+  uncat2310/catbox-imagehost:latest
+```
+
+如需本地构建镜像：
+
+```bash
+docker build -t uncat2310/catbox-imagehost:latest .
+```
+
+## Python 源码部署
 
 ```bash
 git clone https://github.com/uncat2310/catbox-imagehost.git

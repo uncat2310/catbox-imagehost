@@ -1,0 +1,18 @@
+services:
+  catbox-imagehost:
+    build: .
+    image: uncat2310/catbox-imagehost:latest
+    container_name: catbox-imagehost
+    restart: unless-stopped
+    ports:
+      - "7800:7800"
+    volumes:
+      - ./config:/app/config
+    environment:
+      PORT: "7800"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:7800/api/health', timeout=5)); raise SystemExit(0 if data.get('ok') else 1)"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 10s
