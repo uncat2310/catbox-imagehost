@@ -47,14 +47,46 @@ catbox-imagehost/
 
 ### Docker Compose 部署（推荐）
 
+老手可直接复制下面的 `docker-compose.yml`，一行 `docker compose up -d` 即可启动：
+
+```yaml
+services:
+  catbox-imagehost:
+    image: honkai/catbox-imagehost:latest
+    container_name: catbox-imagehost
+    restart: unless-stopped
+    ports:
+      - "7800:7800"
+    volumes:
+      - ./config:/app/config
+    environment:
+      PORT: "7800"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:7800/api/health', timeout=5)); raise SystemExit(0 if data.get('ok') else 1)"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 10s
+```
+
+```bash
+# 创建配置目录
+mkdir -p config
+
+# 从项目拉取默认配置（或手动创建）
+curl -o config/settings.json \
+  https://raw.githubusercontent.com/uncat2310/catbox-imagehost/main/config/settings.example.json
+
+# 启动服务
+docker compose up -d
+```
+
+或者从源码拉取完整项目：
+
 ```bash
 git clone https://github.com/uncat2310/catbox-imagehost.git
 cd catbox-imagehost
-
-# 从 settings.example.json 复制配置
 cp config/settings.example.json config/settings.json
-
-# 启动服务
 docker compose up -d
 ```
 
