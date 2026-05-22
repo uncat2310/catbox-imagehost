@@ -41,7 +41,13 @@ catbox-imagehost/
 
 ### Docker Compose 部署（推荐）
 
-创建以下 `docker-compose.yml`：
+**1. 创建项目目录并进入**
+
+```bash
+mkdir catbox-imagehost && cd catbox-imagehost
+```
+
+**2. 创建 `docker-compose.yml`**
 
 ```yaml
 services:
@@ -55,16 +61,18 @@ services:
       - ./catbox-imagehost:/app/config
 ```
 
-启动服务：
+**3. 创建配置目录并启动**
 
 ```bash
 mkdir -p catbox-imagehost
 docker compose up -d
 ```
 
-> `settings.json` 为可选配置，缺失时会自动使用内置默认值（WebP 关闭、质量 80、并发 3、主题跟随系统）。如需自定义，可从 [settings.example.json](https://raw.githubusercontent.com/uncat2310/catbox-imagehost/main/config/settings.example.json) 下载放到 `catbox-imagehost/` 目录下。
+> `settings.json` 可选，缺失时自动使用内置默认值（WebP 关闭、质量 80、并发 3、主题跟随系统）。如需自定义，下载 [settings.example.json](https://raw.githubusercontent.com/uncat2310/catbox-imagehost/main/config/settings.example.json) 放入 `catbox-imagehost/` 目录即可。
 
-访问 `http://服务器IP:7800/` 即可。
+**4. 访问**
+
+打开浏览器访问 `http://服务器IP:7800/`。
 
 ### 源码部署
 
