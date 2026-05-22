@@ -2,6 +2,12 @@
 
 一个轻量的 [Catbox.moe](https://catbox.moe) 上传面板，使用 FastAPI 提供后端接口，前端为原生 HTML/CSS/JavaScript。适合部署在自己的服务器上，通过浏览器完成批量上传、图片处理、历史管理和配置备份。
 
+![主界面](screenshots/main-page.png)
+<p align="center">
+  <img src="screenshots/settings.png" width="45%" alt="设置面板" />
+  <img src="screenshots/history.png" width="45%" alt="上传历史" />
+</p>
+
 ## 功能特性
 
 - 批量上传图片、视频、音频等文件到 Catbox.moe
