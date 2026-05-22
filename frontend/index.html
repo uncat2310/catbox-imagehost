@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Catbox 图床</title>
-<link rel="stylesheet" href="/static/style.css?v=25">
+<link rel="stylesheet" href="/static/style.css?v=26">
 </head>
 <body>
 
@@ -62,7 +62,7 @@
     </div>
 
     <footer class="app-footer">
-      <span>Catbox 图床 v3.1.0</span>
+      <span>Catbox 图床 v3.2.0</span>
       <span>© 2026 uncat2310</span>
       <a href="https://github.com/uncat2310/catbox-imagehost" target="_blank" rel="noopener">GitHub</a>
     </footer>
@@ -139,7 +139,12 @@
           <input type="range" id="input-webp-quality" min="1" max="100" value="80" class="field-range">
           <p class="field-hint">越低文件越小画质越差，推荐 75-85</p>
         </div>
-        <button id="btn-save-image-settings" class="btn btn-primary full-width">保存图片设置</button>
+        <div class="field">
+          <label class="field-label">上传并发: <span id="concurrency-value">3</span></label>
+          <input type="range" id="input-upload-concurrency" min="1" max="6" value="3" class="field-range">
+          <p class="field-hint">同时上传的文件数。推荐 2-4，网络较好可适当提高</p>
+        </div>
+        <button id="btn-save-image-settings" class="btn btn-primary full-width">保存上传设置</button>
       </section>
       <div class="divider"></div>
       <section class="section">
@@ -161,6 +166,6 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/static/app.js?v=25"></script>
+<script src="/static/app.js?v=26"></script>
 </body>
 </html>

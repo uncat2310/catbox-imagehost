@@ -1,11 +1,13 @@
 """Catbox 图床 —— FastAPI 后端"""
 
+import asyncio
 import json
 import mimetypes
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import aiohttp
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
@@ -21,7 +23,7 @@ from backend.image_processor import process_image, is_image
 
 # ── 应用配置 ──────────────────────────────────────────────
 
-APP_VERSION = "3.1.0"
+APP_VERSION = "3.2.0"
 
 app = FastAPI(title="Catbox 图床", version=APP_VERSION)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -29,6 +31,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 MAX_SIZE = 200 * 1024 * 1024
 MAX_FILES = 20
+MAX_CONCURRENT_UPLOADS = 6
 
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
@@ -49,6 +52,54 @@ def _guess_type(filename: str | None) -> str:
 def _replace_extension(filename: str, ext: str) -> str:
     stem = filename.rsplit(".", 1)[0] if "." in filename else filename
     return f"{stem}.{ext}"
+
+
+async def _upload_one(
+    file: UploadFile,
+    settings: dict,
+    userhash: str,
+    semaphore: asyncio.Semaphore,
+    session: aiohttp.ClientSession,
+) -> tuple[dict | None, dict | None]:
+    """读取、可选处理并上传单个文件。"""
+    async with semaphore:
+        try:
+            content = await file.read()
+            if len(content) > MAX_SIZE:
+                return None, {"filename": file.filename, "error": "文件超过 200MB 限制"}
+
+            filename = file.filename or "untitled"
+            body = content
+            processed = False
+
+            if await asyncio.to_thread(is_image, content):
+                try:
+                    body, ext = await asyncio.to_thread(
+                        process_image,
+                        content,
+                        settings["webp_enabled"],
+                        settings["webp_quality"],
+                    )
+                    processed = True
+                    if settings["webp_enabled"]:
+                        filename = _replace_extension(filename, ext)
+                except Exception:
+                    pass
+
+            url = await upload_file(body, filename, userhash, session=session)
+            return {
+                "filename": filename,
+                "url": url,
+                "size": len(body),
+                "type": _guess_type(filename),
+                "time": datetime.now(timezone.utc).isoformat(),
+                "processed": processed,
+            }, None
+
+        except CatboxError as e:
+            return None, {"filename": file.filename, "error": str(e)}
+        except Exception as e:
+            return None, {"filename": file.filename, "error": f"上传异常: {e}"}
 
 
 # ── 页面 ──────────────────────────────────────────────────
@@ -91,46 +142,21 @@ async def upload(
         raise HTTPException(400, f"单次最多 {MAX_FILES} 个文件")
 
     settings = get_settings()
-    results, errors = [], []
+    concurrency = min(settings["upload_concurrency"], MAX_CONCURRENT_UPLOADS, len(files))
+    semaphore = asyncio.Semaphore(concurrency)
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as session:
+        uploaded = await asyncio.gather(*(
+            _upload_one(file, settings, userhash, semaphore, session)
+            for file in files
+        ))
 
-    for file in files:
-        try:
-            content = await file.read()
-            if len(content) > MAX_SIZE:
-                errors.append({"filename": file.filename, "error": "文件超过 200MB 限制"})
-                continue
+    results = [result for result, _ in uploaded if result]
+    errors = [error for _, error in uploaded if error]
 
-            filename = file.filename or "untitled"
-            body = content
-            processed = False
+    for entry in results:
+        add_history(entry)
 
-            if is_image(content):
-                try:
-                    body, ext = process_image(content, settings["webp_enabled"], settings["webp_quality"])
-                    processed = True
-                    if settings["webp_enabled"]:
-                        filename = _replace_extension(filename, ext)
-                except Exception:
-                    pass
-
-            url = await upload_file(body, filename, userhash)
-            entry = {
-                "filename": filename,
-                "url": url,
-                "size": len(body),
-                "type": _guess_type(filename),
-                "time": datetime.now(timezone.utc).isoformat(),
-                "processed": processed,
-            }
-            results.append(entry)
-            add_history(entry)
-
-        except CatboxError as e:
-            errors.append({"filename": file.filename, "error": str(e)})
-        except Exception as e:
-            errors.append({"filename": file.filename, "error": f"上传异常: {e}"})
-
-    return {"ok": True, "results": results, "errors": errors, "total": len(files)}
+    return {"ok": True, "results": results, "errors": errors, "total": len(files), "concurrency": concurrency}
 
 
 # ── 历史 ──────────────────────────────────────────────────

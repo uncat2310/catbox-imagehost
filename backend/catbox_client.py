@@ -11,7 +11,12 @@ class CatboxError(Exception):
     pass
 
 
-async def upload_file(content: bytes, filename: str, userhash: Optional[str] = None) -> str:
+async def upload_file(
+    content: bytes,
+    filename: str,
+    userhash: Optional[str] = None,
+    session: aiohttp.ClientSession | None = None,
+) -> str:
     """上传文件，返回直链 URL"""
     data = aiohttp.FormData()
     data.add_field("reqtype", "fileupload")
@@ -19,15 +24,23 @@ async def upload_file(content: bytes, filename: str, userhash: Optional[str] = N
     if userhash:
         data.add_field("userhash", userhash)
 
-    async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
-        async with session.post(API, data=data) as resp:
-            text = (await resp.text()).strip()
-            if resp.status >= 400:
-                raise CatboxError(text or f"Catbox HTTP {resp.status}")
+    if session:
+        text = await _post_form(session, data)
+    else:
+        async with aiohttp.ClientSession(timeout=TIMEOUT) as owned_session:
+            text = await _post_form(owned_session, data)
 
     if text.startswith("http"):
         return text
     raise CatboxError(text)
+
+
+async def _post_form(session: aiohttp.ClientSession, data: aiohttp.FormData) -> str:
+    async with session.post(API, data=data) as resp:
+        text = (await resp.text()).strip()
+        if resp.status >= 400:
+            raise CatboxError(text or f"Catbox HTTP {resp.status}")
+        return text
 
 
 async def delete_files(urls: list[str], userhash: str) -> str:
@@ -38,8 +51,5 @@ async def delete_files(urls: list[str], userhash: str) -> str:
     data.add_field("userhash", userhash)
 
     async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
-        async with session.post(API, data=data) as resp:
-            text = (await resp.text()).strip()
-            if resp.status >= 400:
-                raise CatboxError(text or f"Catbox HTTP {resp.status}")
-            return text
+        text = await _post_form(session, data)
+        return text

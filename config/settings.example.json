@@ -1,6 +1,7 @@
 {
   "webp_enabled": true,
   "webp_quality": 80,
+  "upload_concurrency": 3,
   "theme": "auto",
   "history": []
 }

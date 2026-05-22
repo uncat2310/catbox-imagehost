@@ -7,13 +7,14 @@ from pathlib import Path
 CONFIG_DIR = Path(__file__).parent.parent / "config"
 CONFIG_FILE = CONFIG_DIR / "settings.json"
 
-ALLOWED_SETTINGS = {"webp_enabled", "webp_quality", "theme"}
+ALLOWED_SETTINGS = {"webp_enabled", "webp_quality", "theme", "upload_concurrency"}
 VALID_THEMES = {"auto", "light", "dark"}
 KEEP_HISTORY = 200
 KEEP_HISTORY_IMPORT = 500
 DEFAULT_SETTINGS = {
     "webp_enabled": False,
     "webp_quality": 80,
+    "upload_concurrency": 3,
     "theme": "auto",
 }
 
@@ -61,6 +62,14 @@ def _coerce_theme(value) -> str:
     return value if value in VALID_THEMES else DEFAULT_SETTINGS["theme"]
 
 
+def _coerce_concurrency(value) -> int:
+    try:
+        concurrency = int(value)
+    except (TypeError, ValueError):
+        concurrency = DEFAULT_SETTINGS["upload_concurrency"]
+    return max(1, min(6, concurrency))
+
+
 def _normalize_settings(data: dict) -> dict:
     normalized = {}
     if "webp_enabled" in data:
@@ -69,6 +78,8 @@ def _normalize_settings(data: dict) -> dict:
         normalized["webp_quality"] = _coerce_quality(data["webp_quality"])
     if "theme" in data:
         normalized["theme"] = _coerce_theme(data["theme"])
+    if "upload_concurrency" in data:
+        normalized["upload_concurrency"] = _coerce_concurrency(data["upload_concurrency"])
     return normalized
 
 
@@ -87,6 +98,7 @@ def get_settings() -> dict:
     return {
         "webp_enabled": _coerce_bool(cfg.get("webp_enabled", DEFAULT_SETTINGS["webp_enabled"])),
         "webp_quality": _coerce_quality(cfg.get("webp_quality", DEFAULT_SETTINGS["webp_quality"])),
+        "upload_concurrency": _coerce_concurrency(cfg.get("upload_concurrency", DEFAULT_SETTINGS["upload_concurrency"])),
         "theme": _coerce_theme(cfg.get("theme", DEFAULT_SETTINGS["theme"])),
     }
 

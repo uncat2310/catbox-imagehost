@@ -7,7 +7,7 @@ const LS_KEY = 'catbox';
 const ENC_MAGIC = 'CATBOX_ENC_V1:';
 const THEMES = new Set(['auto', 'light', 'dark']);
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
-const DEFAULT_CONFIG = { webp_enabled: false, webp_quality: 80, theme: 'auto' };
+const DEFAULT_CONFIG = { webp_enabled: false, webp_quality: 80, upload_concurrency: 3, theme: 'auto' };
 
 const ICON_SUN = '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
 const ICON_MOON = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
@@ -51,6 +51,8 @@ const el = {
   webpEnabled: Q('#input-webp-enabled'),
   webpQuality: Q('#input-webp-quality'),
   qualityValue: Q('#quality-value'),
+  uploadConcurrency: Q('#input-upload-concurrency'),
+  concurrencyValue: Q('#concurrency-value'),
   saveUserhashBtn: Q('#btn-save-userhash'),
   saveImageSettingsBtn: Q('#btn-save-image-settings'),
   encryptPass: Q('#input-encrypt-pass'),
@@ -83,9 +85,11 @@ function normalizeTheme(theme) {
 
 function normalizeConfig(cfg = {}) {
   const quality = Number.parseInt(cfg.webp_quality, 10);
+  const concurrency = Number.parseInt(cfg.upload_concurrency, 10);
   return {
     webp_enabled: Boolean(cfg.webp_enabled),
     webp_quality: Number.isFinite(quality) ? clamp(quality, 1, 100) : DEFAULT_CONFIG.webp_quality,
+    upload_concurrency: Number.isFinite(concurrency) ? clamp(concurrency, 1, 6) : DEFAULT_CONFIG.upload_concurrency,
     theme: normalizeTheme(cfg.theme || DEFAULT_CONFIG.theme),
   };
 }
@@ -210,6 +214,8 @@ function renderConfig(cfg = state.config) {
   el.webpEnabled.checked = state.config.webp_enabled;
   el.webpQuality.value = state.config.webp_quality;
   el.qualityValue.textContent = state.config.webp_quality;
+  el.uploadConcurrency.value = state.config.upload_concurrency;
+  el.concurrencyValue.textContent = state.config.upload_concurrency;
 }
 
 async function loadConfig({ applyTheme = true } = {}) {
@@ -229,6 +235,7 @@ async function saveImageSettings() {
     ...state.config,
     webp_enabled: el.webpEnabled.checked,
     webp_quality: el.webpQuality.value,
+    upload_concurrency: el.uploadConcurrency.value,
   });
 
   try {
@@ -236,7 +243,7 @@ async function saveImageSettings() {
     const data = await response.json();
     if (!data.ok) throw new Error('save failed');
     renderConfig(body);
-    toast('图片设置已保存');
+    toast('上传设置已保存');
   } catch {
     toast('保存失败', true);
   }
@@ -257,11 +264,12 @@ async function uploadFiles(fileList) {
   state.batchResults = [];
   el.uploading.classList.remove('hidden');
   el.progressBar.style.width = '0%';
+  el.progressLabel.textContent = `准备上传 ${files.length} 个文件`;
 
-  for (let i = 0; i < files.length; i += 1) {
-    const file = files[i];
-    el.progressLabel.textContent = `[${i + 1}/${files.length}] ${file.name}`;
-    el.progressBar.style.width = `${(i / files.length) * 100}%`;
+  let done = 0;
+  const concurrency = Math.min(state.config.upload_concurrency || DEFAULT_CONFIG.upload_concurrency, files.length);
+  const uploadOne = async (file, index) => {
+    el.progressLabel.textContent = `上传中 ${done}/${files.length} · 并发 ${concurrency}`;
 
     const formData = new FormData();
     formData.append('files', file);
@@ -271,19 +279,30 @@ async function uploadFiles(fileList) {
       const response = await fetch('/api/upload', { method: 'POST', body: formData });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || '上传失败');
-      data.results?.forEach(result => state.batchResults.push(result));
-      data.errors?.forEach(error => state.batchResults.push({
-        filename: error.filename || file.name,
+      const result = data.results?.[0] || (data.errors?.[0] && {
+        filename: data.errors[0].filename || file.name,
         url: '',
         type: 'error',
-        error: error.error || '上传失败',
+        error: data.errors[0].error || '上传失败',
         size: 0,
-      }));
+      });
+      state.batchResults[index] = result || {
+        filename: file.name,
+        url: '',
+        type: 'error',
+        error: '上传失败',
+        size: 0,
+      };
     } catch (error) {
-      state.batchResults.push({ filename: file.name, url: '', type: 'error', error: error.message, size: 0 });
+      state.batchResults[index] = { filename: file.name, url: '', type: 'error', error: error.message, size: 0 };
     }
-    el.progressBar.style.width = `${((i + 1) / files.length) * 100}%`;
-  }
+
+    done += 1;
+    el.progressLabel.textContent = `已完成 ${done}/${files.length} · ${file.name}`;
+    el.progressBar.style.width = `${(done / files.length) * 100}%`;
+  };
+
+  await runPool(files, concurrency, uploadOne);
 
   el.progressLabel.textContent = `完成 ${files.length} 个`;
   el.progressBar.style.width = '100%';
@@ -291,6 +310,18 @@ async function uploadFiles(fileList) {
     el.uploading.classList.add('hidden');
     if (state.batchResults.length) showResults();
   }, 420);
+}
+
+async function runPool(items, limit, worker) {
+  let next = 0;
+  const workers = Array.from({ length: limit }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      await worker(items[index], index);
+    }
+  });
+  await Promise.all(workers);
 }
 
 function resultMarkup(result, index) {
@@ -752,6 +783,9 @@ function bindEvents() {
   el.saveImageSettingsBtn.addEventListener('click', saveImageSettings);
   el.webpQuality.addEventListener('input', () => {
     el.qualityValue.textContent = el.webpQuality.value;
+  });
+  el.uploadConcurrency.addEventListener('input', () => {
+    el.concurrencyValue.textContent = el.uploadConcurrency.value;
   });
 
   el.exportBtn.addEventListener('click', exportData);
