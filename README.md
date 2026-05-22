@@ -39,15 +39,9 @@ catbox-imagehost/
 
 ## 快速开始
 
-### 环境要求
-
-- Docker 与 Docker Compose，或 Python 3.11+
-- 可以访问 `https://catbox.moe`
-- 一个 Catbox 账号和 `userhash`（在 Catbox 管理页获取）
-
 ### Docker Compose 部署（推荐）
 
-老手可直接复制下面的 `docker-compose.yml`，一行 `docker compose up -d` 即可启动：
+创建以下 `docker-compose.yml`：
 
 ```yaml
 services:
@@ -59,85 +53,19 @@ services:
       - "7800:7800"
     volumes:
       - ./config:/app/config
-    environment:
-      PORT: "7800"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:7800/api/health', timeout=5)); raise SystemExit(0 if data.get('ok') else 1)"]
-      interval: 30s
-      timeout: 8s
-      retries: 3
-      start_period: 10s
 ```
 
-```bash
-# 创建配置目录
-mkdir -p config
-
-# 从项目拉取默认配置（或手动创建）
-curl -o config/settings.json \
-  https://raw.githubusercontent.com/uncat2310/catbox-imagehost/main/config/settings.example.json
-
-# 启动服务
-docker compose up -d
-```
-
-或者从源码拉取完整项目：
-
-```bash
-git clone https://github.com/uncat2310/catbox-imagehost.git
-cd catbox-imagehost
-cp config/settings.example.json config/settings.json
-docker compose up -d
-```
-
-启动成功后访问 `http://服务器IP:7800/`。
-
-所有配置与历史记录会持久化到当前目录的 `config/` 文件夹，重启容器不会丢失数据。
-
-查看日志：
-
-```bash
-docker compose logs -f
-```
-
-更新镜像：
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-也可以直接从 Docker Hub 拉取预构建镜像：
-
-```bash
-docker pull honkai/catbox-imagehost:latest
-```
-
-### Docker 部署（无 Compose）
+启动服务：
 
 ```bash
 mkdir -p config
-cp config/settings.example.json config/settings.json
-
-docker run -d \
-  --name catbox-imagehost \
-  --restart unless-stopped \
-  -p 7800:7800 \
-  -v "$PWD/config:/app/config" \
-  honkai/catbox-imagehost:latest
+curl -o config/settings.json https://raw.githubusercontent.com/uncat2310/catbox-imagehost/main/config/settings.example.json
+docker compose up -d
 ```
 
-### 本地构建镜像
+访问 `http://服务器IP:7800/` 即可。
 
-如需从源码自己构建镜像：
-
-```bash
-docker build -t catbox-imagehost:latest .
-```
-
-然后修改 `docker-compose.yml` 中的 `image` 字段或直接使用上面 `docker run` 的命令。
-
-### Python 源码部署（无 Docker）
+### 源码部署
 
 ```bash
 git clone https://github.com/uncat2310/catbox-imagehost.git
@@ -149,11 +77,7 @@ cp config/settings.example.json config/settings.json
 ./run.sh
 ```
 
-默认监听 `0.0.0.0:7800`。如需修改端口：
-
-```bash
-PORT=8088 ./run.sh
-```
+默认监听 `0.0.0.0:7800`，可通过 `PORT=8088 ./run.sh` 修改端口。
 
 ## 使用方法
 
