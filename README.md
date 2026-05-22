@@ -59,9 +59,10 @@ services:
 
 ```bash
 mkdir -p config
-curl -o config/settings.json https://raw.githubusercontent.com/uncat2310/catbox-imagehost/main/config/settings.example.json
 docker compose up -d
 ```
+
+> `settings.json` 为可选配置，缺失时会自动使用内置默认值（WebP 关闭、质量 80、并发 3、主题跟随系统）。如需自定义，可从 [settings.example.json](https://raw.githubusercontent.com/uncat2310/catbox-imagehost/main/config/settings.example.json) 下载放到 `config/` 目录下。
 
 访问 `http://服务器IP:7800/` 即可。
 
