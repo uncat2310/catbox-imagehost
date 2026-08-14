@@ -192,3 +192,10 @@ async def import_backup(data: dict):
         return import_data(data)
     except Exception as e:
         raise HTTPException(400, f"导入失败: {e}")
+
+
+from fastapi.responses import FileResponse
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def get_favicon_ico():
+    return FileResponse(str(FRONTEND_DIR / "favicon.ico"))

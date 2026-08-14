@@ -1,7 +1,7 @@
 services:
   catbox-imagehost:
     build: .
-    image: honkai/catbox-imagehost:latest
+    image: ghcr.io/uncat2310/catbox-imagehost:latest
     container_name: catbox-imagehost
     restart: unless-stopped
     ports:
