@@ -31,8 +31,8 @@ async def lifespan(app):
     password = os.environ.get("APP_PASSWORD", "")
     if not userhash or userhash == "replace-me":
         raise RuntimeError("请在部署环境配置 CATBOX_USERHASH")
-    if len(password) < 16 or password == "replace-with-a-long-random-password":
-        raise RuntimeError("APP_PASSWORD 必须至少 16 位，请使用独立的随机访问密码")
+    if len(password) < 8 or password == "replace-with-a-long-random-password":
+        raise RuntimeError("APP_PASSWORD 必须至少 8 位，推荐使用独立的随机访问密码")
     app.state.userhash = userhash
     app.state.image_slots = asyncio.Semaphore(1)
     app.state.password_digest = hashlib.sha256(password.encode()).digest()

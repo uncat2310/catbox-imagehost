@@ -20,7 +20,7 @@ docker compose up -d --build
 | 变量 | 用途 |
 | --- | --- |
 | `CATBOX_USERHASH` | 你自己的 Catbox Userhash，仅供服务端向 Catbox 认证 |
-| `APP_PASSWORD` | 登录面板的独立密码，至少 16 位，推荐随机生成 32 位以上 |
+| `APP_PASSWORD` | 登录面板的独立密码，至少 8 位，推荐随机生成 32 位以上 |
 
 可选：`MAX_FILE_SIZE_MB`（1–200，默认 200）、`CONFIG_DIR`（默认项目的 config 目录）、`PORT`（默认 7800）。不要把真实凭证写进 Compose 文件、构建参数、Git 或聊天记录。环境变量对有权限管理宿主机或容器的人可见。
 

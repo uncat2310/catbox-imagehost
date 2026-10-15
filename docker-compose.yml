@@ -11,7 +11,7 @@ services:
     environment:
       PORT: "7800"
       CATBOX_USERHASH: ${CATBOX_USERHASH:?请在 .env 中配置 CATBOX_USERHASH}
-      APP_PASSWORD: ${APP_PASSWORD:?请在 .env 中配置至少16位的 APP_PASSWORD}
+      APP_PASSWORD: ${APP_PASSWORD:?请在 .env 中配置至少8位的 APP_PASSWORD}
     security_opt:
       - no-new-privileges:true
     pids_limit: 100

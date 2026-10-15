@@ -132,6 +132,17 @@ class PrivateTests(unittest.IsolatedAsyncioTestCase):
 
 
 class StandaloneTests(unittest.TestCase):
+    def test_custom_password_startup(self):
+        async def start():
+            async with main.app.router.lifespan_context(main.app):
+                pass
+        with tempfile.TemporaryDirectory() as directory, patch.object(config, 'CONFIG_DIR', Path(directory)):
+            with patch.dict(os.environ, {'CATBOX_USERHASH': USERHASH, 'APP_PASSWORD': 'test-pass'}):
+                asyncio.run(start())
+            with patch.dict(os.environ, {'CATBOX_USERHASH': USERHASH, 'APP_PASSWORD': 'short7'}):
+                with self.assertRaises(RuntimeError):
+                    asyncio.run(start())
+
     def test_missing_credentials_fail_startup(self):
         async def start():
             async with main.app.router.lifespan_context(main.app):
