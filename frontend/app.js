@@ -4,7 +4,6 @@ const Q = s => document.querySelector(s);
 const QA = (s, fn) => document.querySelectorAll(s).forEach(fn);
 
 const LS_KEY = 'catbox';
-const ENC_MAGIC = 'CATBOX_ENC_V1:';
 const THEMES = new Set(['auto', 'light', 'dark']);
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const DEFAULT_CONFIG = { webp_enabled: false, webp_quality: 80, upload_concurrency: 3, theme: 'auto' };
@@ -45,20 +44,12 @@ const el = {
   themeBtn: Q('#btn-theme'),
   iconTheme: Q('#icon-theme'),
   themeMenu: Q('#theme-menu'),
-  userhashInput: Q('#input-userhash'),
-  userhashBadge: Q('#userhash-badge'),
-  noUserhashWarn: Q('#no-userhash-warn'),
   webpEnabled: Q('#input-webp-enabled'),
   webpQuality: Q('#input-webp-quality'),
   qualityValue: Q('#quality-value'),
   uploadConcurrency: Q('#input-upload-concurrency'),
   concurrencyValue: Q('#concurrency-value'),
-  saveUserhashBtn: Q('#btn-save-userhash'),
   saveImageSettingsBtn: Q('#btn-save-image-settings'),
-  encryptPass: Q('#input-encrypt-pass'),
-  exportBtn: Q('#btn-export'),
-  importBtn: Q('#btn-import'),
-  importFile: Q('#import-file'),
   toast: Q('#toast'),
 };
 
@@ -67,6 +58,9 @@ const state = {
   config: { ...DEFAULT_CONFIG },
   historyOpening: false,
   historyLoadTimer: 0,
+  uploading: false,
+  uploadController: null,
+  maxFileSizeMB: 200,
   sheetDrag: { active: false, pointerId: null, startY: 0, currentY: 0 },
 };
 
@@ -103,7 +97,9 @@ function getTheme() {
 }
 
 function postConfig(data) {
-  return fetch('/api/config', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(data) }).catch(() => {});
+  return fetch('/api/config', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(data) })
+    .then(response => { if (!response.ok) throw new Error(); })
+    .catch(() => toast('设置同步失败，请重试', true));
 }
 
 function setTheme(theme, opts = {}) {
@@ -193,22 +189,6 @@ function fallbackCopy(text, onSuccess) {
   }
 }
 
-function loadUserhash() {
-  const userhash = ls.get('userhash');
-  el.userhashInput.value = userhash;
-  el.userhashBadge.textContent = userhash ? '已设置' : '未设置';
-  el.userhashBadge.className = userhash ? 'badge' : 'badge badge-dim';
-  el.noUserhashWarn.classList.toggle('hidden', Boolean(userhash));
-}
-
-function saveUserhash() {
-  ls.set('userhash', el.userhashInput.value.trim());
-  loadUserhash();
-  toast('已保存（仅本浏览器生效）');
-}
-
-const getUserhash = () => ls.get('userhash');
-
 function renderConfig(cfg = state.config) {
   state.config = normalizeConfig(cfg);
   el.webpEnabled.checked = state.config.webp_enabled;
@@ -221,16 +201,20 @@ function renderConfig(cfg = state.config) {
 async function loadConfig({ applyTheme = true } = {}) {
   try {
     const response = await fetch('/api/config');
-    const cfg = normalizeConfig(await response.json());
+    if (!response.ok) throw new Error('加载设置失败');
+    const raw = await response.json();
+    state.maxFileSizeMB = Number(raw.max_file_size_mb) || 200;
+    Q('.drop-sub').textContent = `支持批量 · 最大 ${state.maxFileSizeMB}MB · Ctrl+V 粘贴`;
+    const cfg = normalizeConfig(raw);
     renderConfig(cfg);
     if (applyTheme && cfg.theme !== getTheme()) setTheme(cfg.theme, { sync: false });
   } catch {
     renderConfig();
   }
-  loadUserhash();
 }
 
 async function saveImageSettings() {
+  if (el.saveImageSettingsBtn.disabled) return;
   const body = normalizeConfig({
     ...state.config,
     webp_enabled: el.webpEnabled.checked,
@@ -238,6 +222,8 @@ async function saveImageSettings() {
     upload_concurrency: el.uploadConcurrency.value,
   });
 
+  el.saveImageSettingsBtn.disabled = true;
+  el.saveImageSettingsBtn.textContent = '保存中…';
   try {
     const response = await fetch('/api/config', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
     const data = await response.json();
@@ -246,19 +232,20 @@ async function saveImageSettings() {
     toast('上传设置已保存');
   } catch {
     toast('保存失败', true);
+  } finally {
+    el.saveImageSettingsBtn.disabled = false;
+    el.saveImageSettingsBtn.textContent = '保存设置';
   }
 }
 
 async function uploadFiles(fileList) {
+  if (state.uploading) return toast('当前批次尚未完成，请稍候', true);
   const files = [...fileList];
   if (!files.length) return;
-
-  const userhash = getUserhash();
-  if (!userhash) {
-    toast('请先在设置中填入 Userhash', true);
-    openSettings();
-    return;
-  }
+  if (files.some(file => file.size > state.maxFileSizeMB * 1024 * 1024)) return toast(`单文件最大 ${state.maxFileSizeMB}MB`, true);
+  state.uploading = true;
+  state.uploadController = new AbortController();
+  Q('#btn-cancel-upload').classList.remove('hidden');
 
   el.resultCard.classList.add('hidden');
   state.batchResults = [];
@@ -273,10 +260,10 @@ async function uploadFiles(fileList) {
 
     const formData = new FormData();
     formData.append('files', file);
-    formData.append('userhash', userhash);
 
     try {
-      const response = await fetch('/api/upload', { method: 'POST', body: formData });
+      if (state.uploadController.signal.aborted) throw new Error('已取消上传');
+      const response = await fetch('/api/upload', { method: 'POST', body: formData, signal: state.uploadController.signal });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || '上传失败');
       const result = data.results?.[0] || (data.errors?.[0] && {
@@ -294,7 +281,7 @@ async function uploadFiles(fileList) {
         size: 0,
       };
     } catch (error) {
-      state.batchResults[index] = { filename: file.name, url: '', type: 'error', error: error.message, size: 0 };
+      state.batchResults[index] = { filename: file.name, url: '', type: 'error', error: error.name === 'AbortError' ? '已取消上传' : error.message, size: 0 };
     }
 
     done += 1;
@@ -303,10 +290,12 @@ async function uploadFiles(fileList) {
   };
 
   await runPool(files, concurrency, uploadOne);
+  Q('#btn-cancel-upload').classList.add('hidden');
 
   el.progressLabel.textContent = `完成 ${files.length} 个`;
   el.progressBar.style.width = '100%';
   setTimeout(() => {
+    state.uploading = false;
     el.uploading.classList.add('hidden');
     if (state.batchResults.length) showResults();
   }, 420);
@@ -336,7 +325,7 @@ function resultMarkup(result, index) {
     </div>`;
   }
 
-  const thumb = result.type === 'image'
+  const thumb = result.type === 'image' && safeImageUrl(result.url)
     ? `<img src="${attr(result.url)}" loading="lazy" alt="">`
     : h(iconFor(result.type));
 
@@ -344,7 +333,7 @@ function resultMarkup(result, index) {
     <div class="result-item-thumb">${thumb}</div>
     <div class="result-item-info">
       <div class="result-item-filename">${h(result.filename)}</div>
-      <div class="result-item-url">${h(result.url)}</div>
+        <div class="result-item-url">${h(result.warning || result.url)}</div>
     </div>
     <button class="result-item-copy" data-idx="${index}">拷贝</button>
     <div class="result-item-status"><span class="check">✓</span></div>
@@ -387,7 +376,7 @@ async function loadHistory() {
       el.historyList.innerHTML = '<p class="empty-state">暂无记录</p>';
       el.historyToolbar.classList.add('hidden');
       el.historyNote.classList.add('hidden');
-      el.historySubtitle.textContent = '暂无本地记录';
+      el.historySubtitle.textContent = '暂无服务端记录';
       return;
     }
 
@@ -395,7 +384,7 @@ async function loadHistory() {
     el.historyNote.classList.remove('hidden');
     el.selectAll.checked = false;
     el.historyList.innerHTML = history.map(historyItemMarkup).join('');
-    el.historySubtitle.textContent = `${history.length} 条本地记录`;
+    el.historySubtitle.textContent = `${history.length} 条服务端记录`;
     updateBatchUI();
   } catch {
     el.historyList.innerHTML = '<p class="empty-state is-error">加载失败</p>';
@@ -415,7 +404,7 @@ function renderHistoryLoading() {
 }
 
 function historyItemMarkup(item) {
-  const thumb = item.type === 'image' && item.url
+  const thumb = item.type === 'image' && safeImageUrl(item.url)
     ? `<img src="${attr(item.url)}" alt="" loading="lazy">`
     : h(iconFor(item.type));
 
@@ -517,7 +506,7 @@ async function batchCopyHistory() {
 async function batchDeleteHistory() {
   const urls = getCheckedUrls();
   if (!urls.length) return toast('请先勾选记录', true);
-  if (!confirm(`清除 ${urls.length} 条本地历史记录？`)) return;
+  if (!confirm(`清除 ${urls.length} 条服务端历史记录？`)) return;
   await deleteHistory(urls, `已清除 ${urls.length} 条`);
 }
 
@@ -542,119 +531,12 @@ async function deleteHistory(urls, okMsg) {
   }
 }
 
-async function buildExport() {
-  const data = await (await fetch('/api/export')).json();
-  data.client = { userhash: ls.get('userhash'), theme: ls.get('theme') };
-  return data;
-}
-
-async function encrypt(plain, password) {
-  const encoder = new TextEncoder();
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const material = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveKey']);
-  const key = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' },
-    material,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt'],
-  );
-  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoder.encode(plain));
-  const bytes = new Uint8Array(salt.length + iv.length + encrypted.byteLength);
-  bytes.set(salt, 0);
-  bytes.set(iv, salt.length);
-  bytes.set(new Uint8Array(encrypted), salt.length + iv.length);
-  return ENC_MAGIC + bytesToBase64(bytes);
-}
-
-async function decrypt(payload, password) {
-  if (!payload.startsWith(ENC_MAGIC)) throw new Error('非加密文件');
-  const raw = base64ToBytes(payload.slice(ENC_MAGIC.length));
-  const salt = raw.slice(0, 16);
-  const iv = raw.slice(16, 28);
-  const encrypted = raw.slice(28);
-  const encoder = new TextEncoder();
-  const material = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveKey']);
-  const key = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' },
-    material,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['decrypt'],
-  );
-  return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, encrypted));
-}
-
-function download(name, content, type) {
-  const url = URL.createObjectURL(new Blob([content], { type }));
-  const link = Object.assign(document.createElement('a'), { href: url, download: name });
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-async function exportData() {
-  try {
-    const json = JSON.stringify(await buildExport(), null, 2);
-    const pass = el.encryptPass.value;
-    if (pass) {
-      if (pass.length < 4) return toast('密码至少 4 位', true);
-      download(`catbox_enc_${today()}.json`, await encrypt(json, pass), 'text/plain');
-      toast('加密备份已下载');
-    } else {
-      download(`catbox_backup_${today()}.json`, json, 'application/json');
-      toast('导出完成（明文）');
-    }
-  } catch {
-    toast('导出失败', true);
-  }
-}
-
-async function importData() {
-  const file = el.importFile.files[0];
-  if (!file) {
-    el.importFile.value = '';
-    return;
-  }
-
-  try {
-    const text = await file.text();
-    const json = await parseBackup(text);
-    const response = await fetch('/api/import', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(json) });
-    const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error(data.detail || '导入失败');
-
-    if (json.client?.userhash) ls.set('userhash', json.client.userhash);
-    if (json.client?.theme) setTheme(json.client.theme);
-    await loadConfig();
-    toast(`导入成功：${data.imported_history || 0} 条`);
-  } catch (error) {
-    toast(error.message || '导入失败', true);
-  } finally {
-    el.importFile.value = '';
-  }
-}
-
-async function parseBackup(text) {
-  if (!text.startsWith(ENC_MAGIC)) return JSON.parse(text);
-  const pass = prompt('这是加密备份，请输入密码：');
-  if (!pass) throw new Error('已取消');
-  try {
-    return JSON.parse(await decrypt(text, pass));
-  } catch {
-    throw new Error('密码错误');
-  }
-}
-
 function openSettings() {
   if (el.settingsSheet.classList.contains('open')) return;
   document.body.classList.add('settings-open');
   el.settingsBtn.setAttribute('aria-expanded', 'true');
   el.settingsSheet.classList.add('open');
   document.documentElement.style.overflow = 'hidden';
-  loadUserhash();
   renderConfig();
   requestAnimationFrame(() => loadConfig({ applyTheme: false }));
 }
@@ -731,6 +613,7 @@ function bindKB() {
 }
 
 function bindEvents() {
+  Q('#btn-cancel-upload').addEventListener('click', () => state.uploadController?.abort());
   el.themeBtn.addEventListener('click', event => {
     event.stopPropagation();
     setThemeMenu(!el.themeMenu.classList.contains('open'));
@@ -779,7 +662,6 @@ function bindEvents() {
     if (event.target === el.settingsSheet) closeSettings();
   });
 
-  el.saveUserhashBtn.addEventListener('click', saveUserhash);
   el.saveImageSettingsBtn.addEventListener('click', saveImageSettings);
   el.webpQuality.addEventListener('input', () => {
     el.qualityValue.textContent = el.webpQuality.value;
@@ -788,16 +670,12 @@ function bindEvents() {
     el.concurrencyValue.textContent = el.uploadConcurrency.value;
   });
 
-  el.exportBtn.addEventListener('click', exportData);
-  el.importBtn.addEventListener('click', () => el.importFile.click());
-  el.importFile.addEventListener('change', importData);
 }
 
 function goodResults() {
   return state.batchResults.filter(result => result.url);
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
 
 function h(value) {
   const div = document.createElement('div');
@@ -806,25 +684,16 @@ function h(value) {
 }
 
 function attr(value) {
-  return h(value).replace(/'/g, '&#39;');
+  return h(value).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function safeImageUrl(value) {
+  return typeof value === 'string' && /^https:\/\/files\.catbox\.moe\/[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(value);
 }
 
 function formatTime(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('zh-CN');
-}
-
-function bytesToBase64(bytes) {
-  let binary = '';
-  const size = 0x8000;
-  for (let i = 0; i < bytes.length; i += size) {
-    binary += String.fromCharCode(...bytes.slice(i, i + size));
-  }
-  return btoa(binary);
-}
-
-function base64ToBytes(value) {
-  return Uint8Array.from(atob(value), char => char.charCodeAt(0));
 }
 
 function isInputFocused() {
@@ -833,6 +702,7 @@ function isInputFocused() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  localStorage.removeItem(`${LS_KEY}-userhash`);
   loadTheme();
   loadConfig();
   bindEvents();

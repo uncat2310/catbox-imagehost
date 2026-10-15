@@ -9,6 +9,12 @@ __pycache__/
 !.env.example
 
 config/settings.json
+config/*.db
+config/*.db-*
+config/*.sqlite*
+config/*.bak*
+*.lock.tmp
+.venv/
 *.log
 
 .DS_Store

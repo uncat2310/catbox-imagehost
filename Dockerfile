@@ -12,7 +12,8 @@ RUN apt-get update \
     && useradd --create-home --uid 10001 --shell /usr/sbin/nologin app
 
 COPY backend/requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+COPY backend/requirements.lock /tmp/requirements.lock
+RUN pip install --no-cache-dir -r /tmp/requirements.lock && pip check
 
 COPY backend ./backend
 COPY frontend ./frontend

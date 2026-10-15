@@ -1,6 +1,7 @@
 """Catbox.moe API 客户端"""
 
-from typing import Optional
+import asyncio
+from typing import BinaryIO, Optional
 import aiohttp
 
 API = "https://catbox.moe/user/api.php"
@@ -12,7 +13,7 @@ class CatboxError(Exception):
 
 
 async def upload_file(
-    content: bytes,
+    content: bytes | BinaryIO,
     filename: str,
     userhash: Optional[str] = None,
     session: aiohttp.ClientSession | None = None,
@@ -30,16 +31,24 @@ async def upload_file(
         async with aiohttp.ClientSession(timeout=TIMEOUT) as owned_session:
             text = await _post_form(owned_session, data)
 
-    if text.startswith("http"):
-        return text
-    raise CatboxError(text)
+    from backend.models import safe_url
+    try:
+        return safe_url(text)
+    except ValueError:
+        raise CatboxError("Catbox 返回了无效文件地址") from None
 
 
 async def _post_form(session: aiohttp.ClientSession, data: aiohttp.FormData) -> str:
-    async with session.post(API, data=data) as resp:
-        text = (await resp.text()).strip()
+    async with session.post(API, data=data, allow_redirects=False) as resp:
+        try:
+            raw = await resp.content.readexactly(4097)
+        except asyncio.IncompleteReadError as exc:
+            raw = exc.partial
+        if len(raw) > 4096:
+            raise CatboxError("Catbox 响应过大")
+        text = raw.decode("utf-8", errors="replace").strip()
         if resp.status >= 400:
-            raise CatboxError(text or f"Catbox HTTP {resp.status}")
+            raise CatboxError(f"Catbox HTTP {resp.status}")
         return text
 
 

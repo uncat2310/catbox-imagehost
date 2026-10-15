@@ -14,6 +14,7 @@ else
 fi
 
 PORT="${PORT:-7800}"
-echo "🚀 Catbox 图床启动中 http://0.0.0.0:${PORT}"
+export HOST="${HOST:-127.0.0.1}"
+echo "🚀 个人 Catbox 图床启动中 http://${HOST}:${PORT}"
 
-exec uvicorn backend.main:app --host 0.0.0.0 --port "${PORT}"
+exec uvicorn backend.main:app --host "${HOST}" --port "${PORT}" --workers 1 --env-file .env
