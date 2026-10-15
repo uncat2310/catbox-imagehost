@@ -1,171 +1,111 @@
-"""配置管理 —— JSON 文件持久化"""
-
+"""Transactional settings with non-destructive legacy JSON migration."""
 import json
+import os
+import sqlite3
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from pydantic import ValidationError
+from backend.models import Backup, HistoryEntry, SettingsPatch, HISTORY_LIMIT
 
-CONFIG_DIR = Path(__file__).parent.parent / "config"
-CONFIG_FILE = CONFIG_DIR / "settings.json"
-
-ALLOWED_SETTINGS = {"webp_enabled", "webp_quality", "theme", "upload_concurrency"}
-VALID_THEMES = {"auto", "light", "dark"}
-KEEP_HISTORY = 200
-KEEP_HISTORY_IMPORT = 500
-DEFAULT_SETTINGS = {
-    "webp_enabled": False,
-    "webp_quality": 80,
-    "upload_concurrency": 3,
-    "theme": "auto",
-}
+CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", Path(__file__).parent.parent / "config"))
+DEFAULT_SETTINGS = {"webp_enabled": False, "webp_quality": 80, "upload_concurrency": 3, "theme": "auto"}
 
 
-def load() -> dict:
-    """加载配置"""
-    try:
-        return json.loads(CONFIG_FILE.read_text("utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {}
+def _legacy():
+    path = CONFIG_DIR / "settings.json"
+    if not path.exists():
+        return {**DEFAULT_SETTINGS, "history": []}
+    raw = json.loads(path.read_text("utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("旧配置必须是 JSON 对象；请先修复或恢复备份")
+    settings = dict(DEFAULT_SETTINGS)
+    for key in DEFAULT_SETTINGS:
+        if key in raw:
+            try:
+                settings.update(SettingsPatch.model_validate({key: raw[key]}).model_dump(exclude_none=True))
+            except ValidationError:
+                pass
+    history, seen = [], set()
+    for entry in raw.get("history", []) if isinstance(raw.get("history"), list) else []:
+        try:
+            normalized = HistoryEntry.model_validate(entry).model_dump(exclude_none=True)
+        except ValidationError:
+            continue
+        if normalized["url"] not in seen:
+            seen.add(normalized["url"])
+            history.append(normalized)
+    return {**settings, "history": history[:HISTORY_LIMIT]}
 
 
-def save(cfg: dict) -> None:
-    """保存配置"""
+@contextmanager
+def _transaction():
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = CONFIG_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), "utf-8")
-    tmp.replace(CONFIG_FILE)
+    with closing(sqlite3.connect(CONFIG_DIR / "settings.db", timeout=10)) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK (id=1), data TEXT NOT NULL)")
+        row = connection.execute("SELECT data FROM state WHERE id=1").fetchone()
+        cfg = json.loads(row[0]) if row else _legacy()
+        yield cfg
+        serialized = json.dumps(cfg, ensure_ascii=False)
+        if not row or row[0] != serialized:
+            connection.execute("INSERT OR REPLACE INTO state VALUES (1, ?)", (serialized,))
 
 
-def _update_config(updates: dict) -> None:
-    """原子更新：加载 → 修改 → 保存"""
-    cfg = load()
-    cfg.update(updates)
-    save(cfg)
+def initialize():
+    with _transaction():
+        pass
 
 
-def _coerce_bool(value) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
+def get_settings():
+    with _transaction() as cfg:
+        return {key: cfg.get(key, default) for key, default in DEFAULT_SETTINGS.items()}
 
 
-def _coerce_quality(value) -> int:
-    try:
-        quality = int(value)
-    except (TypeError, ValueError):
-        quality = DEFAULT_SETTINGS["webp_quality"]
-    return max(1, min(100, quality))
+def merge_settings(data: dict):
+    updates = SettingsPatch.model_validate(data).model_dump(exclude_none=True)
+    with _transaction() as cfg:
+        cfg.update(updates)
 
 
-def _coerce_theme(value) -> str:
-    return value if value in VALID_THEMES else DEFAULT_SETTINGS["theme"]
+def get_history():
+    with _transaction() as cfg:
+        return list(cfg.get("history", []))
 
 
-def _coerce_concurrency(value) -> int:
-    try:
-        concurrency = int(value)
-    except (TypeError, ValueError):
-        concurrency = DEFAULT_SETTINGS["upload_concurrency"]
-    return max(1, min(6, concurrency))
+def add_history_batch(entries: list[dict]):
+    validated = [HistoryEntry.model_validate(entry).model_dump(exclude_none=True) for entry in entries]
+    with _transaction() as cfg:
+        seen = {entry["url"] for entry in validated}
+        cfg["history"] = (list(reversed(validated)) + [entry for entry in cfg.get("history", []) if entry["url"] not in seen])[:HISTORY_LIMIT]
 
 
-def _normalize_settings(data: dict) -> dict:
-    normalized = {}
-    if "webp_enabled" in data:
-        normalized["webp_enabled"] = _coerce_bool(data["webp_enabled"])
-    if "webp_quality" in data:
-        normalized["webp_quality"] = _coerce_quality(data["webp_quality"])
-    if "theme" in data:
-        normalized["theme"] = _coerce_theme(data["theme"])
-    if "upload_concurrency" in data:
-        normalized["upload_concurrency"] = _coerce_concurrency(data["upload_concurrency"])
-    return normalized
+def remove_history_batch(urls: list[str]):
+    with _transaction() as cfg:
+        before = len(cfg.get("history", []))
+        exclude = set(urls)
+        cfg["history"] = [entry for entry in cfg.get("history", []) if entry["url"] not in exclude]
+        return before - len(cfg["history"])
 
 
-# ── 设置读写 ──────────────────────────────────────────────
-
-def merge_settings(data: dict) -> None:
-    """合并前端提交的设置"""
-    delta = _normalize_settings({k: data[k] for k in ALLOWED_SETTINGS if k in data})
-    if delta:
-        _update_config(delta)
+def export_data():
+    with _transaction() as cfg:
+        return {"version": "4.0", "exported_at": datetime.now(timezone.utc).isoformat(),
+                "settings": {key: cfg.get(key, default) for key, default in DEFAULT_SETTINGS.items()},
+                "history": list(cfg.get("history", []))}
 
 
-def get_settings() -> dict:
-    """获取全部前端用设置"""
-    cfg = load()
-    return {
-        "webp_enabled": _coerce_bool(cfg.get("webp_enabled", DEFAULT_SETTINGS["webp_enabled"])),
-        "webp_quality": _coerce_quality(cfg.get("webp_quality", DEFAULT_SETTINGS["webp_quality"])),
-        "upload_concurrency": _coerce_concurrency(cfg.get("upload_concurrency", DEFAULT_SETTINGS["upload_concurrency"])),
-        "theme": _coerce_theme(cfg.get("theme", DEFAULT_SETTINGS["theme"])),
-    }
-
-
-# ── 历史管理 ──────────────────────────────────────────────
-
-def get_history() -> list[dict]:
-    history = load().get("history", [])
-    return history if isinstance(history, list) else []
-
-
-def add_history(entry: dict) -> None:
-    cfg = load()
-    history = cfg.get("history", [])
-    if not isinstance(history, list):
-        history = []
-    history.insert(0, entry)
-    cfg["history"] = history[:KEEP_HISTORY]
-    save(cfg)
-
-
-def remove_history_batch(urls: list[str]) -> int:
-    cfg = load()
-    history = cfg.get("history", [])
-    if not isinstance(history, list):
-        history = []
-    before = len(history)
-    exclude = set(urls)
-    cfg["history"] = [h for h in history if isinstance(h, dict) and h.get("url") not in exclude]
-    save(cfg)
-    return before - len(cfg["history"])
-
-
-# ── 导出 / 导入 ──────────────────────────────────────────
-
-def export_data() -> dict:
-    cfg = load()
-    return {
-        "version": "2.0",
-        "exported_at": datetime.now(timezone.utc).isoformat(),
-        "settings": get_settings(),
-        "history": get_history(),
-    }
-
-
-def import_data(data: dict) -> dict:
-    cfg = load()
-    added = 0
-
-    s = data.get("settings")
-    if isinstance(s, dict):
-        cfg.update(_normalize_settings({key: s[key] for key in ALLOWED_SETTINGS if s.get(key) is not None}))
-
-    if isinstance(data.get("history"), list):
+def import_data(data: dict):
+    backup = Backup.model_validate(data)
+    with _transaction() as cfg:
+        cfg.update(backup.settings.model_dump(exclude_none=True))
         history = cfg.get("history", [])
-        if not isinstance(history, list):
-            history = []
-        cfg["history"] = history
-        existing = {h.get("url") for h in history if isinstance(h, dict) and h.get("url")}
-        for entry in data["history"]:
-            if not isinstance(entry, dict):
-                continue
-            if entry.get("url") and entry["url"] not in existing:
-                cfg.setdefault("history", []).append(entry)
-                existing.add(entry["url"])
-                added += 1
-        cfg["history"] = cfg["history"][:KEEP_HISTORY_IMPORT]
-
-    save(cfg)
-    return {"ok": True, "imported_history": added}
+        existing = {entry["url"] for entry in history}
+        unique = []
+        for entry in backup.history:
+            if entry.url not in existing:
+                existing.add(entry.url)
+                unique.append(entry.model_dump(exclude_none=True))
+        retained = unique[:max(0, HISTORY_LIMIT - len(history))]
+        cfg["history"] = history + retained
+        return {"ok": True, "imported_history": len(retained), "skipped_history": len(backup.history) - len(retained)}

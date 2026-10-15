@@ -11,6 +11,11 @@ __pycache__/
 .env.*
 
 config/settings.json
+config/*.db
+config/*.db-*
+config/*.sqlite*
+config/*.bak*
+tests/
 *.log
 
 .DS_Store

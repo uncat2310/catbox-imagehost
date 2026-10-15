@@ -1,185 +1,86 @@
-<div align="center">
+# 个人 Catbox 图床
 
-# 📦 Catbox 图床 (Catbox Image Host)
+单人自用的 Catbox 上传面板。Userhash 在部署时配置，浏览器不再接收、填写、保存或导出它。页面、静态文件和管理 API 都需要访问密码；仅 `/api/health` 公开。
 
-**极简、轻量、高性能的 Catbox.moe 自建上传中枢与图床管理面板**
+**面板私有不代表文件私有：上传后的文件由 Catbox 公开托管，持有文件直链的人仍可访问。**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Python Version](https://img.shields.io/badge/Python-3.11%2B-brightgreen.svg)](https://www.python.org/)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ed.svg)](https://www.docker.com/)
-[![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GHCR%20Automated-success.svg)](https://github.com/uncat2310/catbox-imagehost/actions)
+## Docker Compose 部署
 
-*优雅托管，极速分发，一切尽在掌控。*
-
-<br />
-
-![主界面](screenshots/main-page.png)
-
-<p align="center">
-  <img src="screenshots/settings.png" width="48%" alt="设置面板" />
-  <img src="screenshots/history.png" width="48%" alt="上传历史" />
-</p>
-
-</div>
-
----
-
-## 📖 项目简介
-
-**Catbox 图床 (Catbox Image Host)** 是一款专为 [Catbox.moe](https://catbox.moe) 打造的高颜值自建图床管理面板。后端基于异步高并发 **FastAPI** 框架，前端采用原生极简 **HTML5 / Vanilla CSS / JavaScript** 开发。
-
-无需复杂依赖，支持批量并发上传、上传前客户端/服务端 WebP 智能压缩、本地历史持久化、AES-GCM 加密备份与多设备自适应布局。
-
----
-
-## ✨ 核心特性
-
-- 🍎 **Apple 极简设计规范**：精心打磨的毛玻璃拟态质感、细腻微交互与流体排版。
-- 🌓 **双模主题智能切换**：支持浅色白与暗黑夜间模式，支持跟随操作系统偏好自动切换。
-- ⚡ **多通道受控并发上传**：支持 1~6 线程并行上传图片、动图、音视频及各类通用文件。
-- 🎯 **智能 WebP 图像无损压缩**：支持上传前实时转码 WebP 并自由调节压缩质量，大幅节省流量与存储。
-- 🔒 **端到端隐私安全**：Catbox `userhash` 默认保存于浏览器本地存储，绝不泄露至公共环境。
-- 📋 **富格式链接一键直达**：上传成功即时生成原始直链、Markdown 嵌入代码及 HTML 标签。
-- 💾 **无感历史持久化与加密备份**：支持上传记录批量检索、导出导入与基于 Web Crypto 的 AES-GCM 端对端加密备份。
-- 🐳 **多架构 Docker 秒级部署**：原生提供 `linux/amd64` 与 `linux/arm64` 多平台 Docker 镜像与 Docker Compose 编排。
-
----
-
-## 🚀 快速开始
-
-### 方式一：Docker 一键拉取运行（推荐，免环境配置）
-
-只需一条 Docker 命令即可瞬时启动容器：
-
-```bash
-docker run -d \
-  --name catbox-imagehost \
-  --restart unless-stopped \
-  -p 7800:7800 \
-  -v ./catbox-data:/app/config \
-  ghcr.io/uncat2310/catbox-imagehost:latest
-```
-
-启动后打开浏览器访问 `http://localhost:7800` 即可！
-
----
-
-### 方式二：Docker Compose 编排
-
-1. 克隆代码仓库：
-```bash
+```sh
 git clone https://github.com/uncat2310/catbox-imagehost.git
 cd catbox-imagehost
+cp .env.example .env
+chmod 600 .env
+# 在服务器编辑 .env，填入 CATBOX_USERHASH 和独立的 APP_PASSWORD
+docker compose up -d --build
 ```
 
-2. 一键启动容器：
-```bash
-docker compose up -d
-```
+必填环境变量：
 
-3. 打开浏览器访问 `http://localhost:7800`。
+| 变量 | 用途 |
+| --- | --- |
+| `CATBOX_USERHASH` | 你自己的 Catbox Userhash，仅供服务端向 Catbox 认证 |
+| `APP_PASSWORD` | 登录面板的独立密码，至少 16 位，推荐随机生成 32 位以上 |
 
----
+可选：`MAX_FILE_SIZE_MB`（1–200，默认 200）、`CONFIG_DIR`（默认项目的 config 目录）、`PORT`（默认 7800）。不要把真实凭证写进 Compose 文件、构建参数、Git 或聊天记录。环境变量对有权限管理宿主机或容器的人可见。
 
-### 方式三：Python 本地源码运行
+浏览器打开 `http://localhost:7800`，在原生登录提示中输入用户名 **admin** 和 APP_PASSWORD。浏览器会在当前会话中缓存 HTTP Basic 凭证；公共设备上请使用独立的隐私窗口并在用完后关闭。修改 APP_PASSWORD 并重启可使旧凭证失效。
 
-#### 环境要求
-- **Python**: 3.11 或更高版本
+默认只发布到 `127.0.0.1:7800`。远程访问使用 HTTPS 反向代理或 Cloudflare Tunnel，不要直接把 7800 发布到公网。示例 Caddy：
 
-#### 步骤
-```bash
-git clone https://github.com/uncat2310/catbox-imagehost.git
-cd catbox-imagehost
-
-# 创建并激活虚拟环境
-python3 -m venv venv
-source venv/bin/activate  # Linux/macOS
-# .\venv\Scripts\activate  # Windows
-
-# 安装依赖
-pip install -r backend/requirements.txt
-
-# 初始化配置
-cp config/settings.example.json config/settings.json
-
-# 启动服务
-./run.sh
-```
-
----
-
-## 🛠️ 项目结构
-
-```text
-catbox-imagehost/
-├── backend/                 # FastAPI 后端服务
-│   ├── main.py              # 服务入口与 API 路由
-│   ├── catbox_client.py     # Catbox.moe 异步客户端
-│   ├── config.py            # 配置管理与历史记录持久化
-│   ├── image_processor.py   # Pillow 图像处理与 WebP 转码
-│   └── requirements.txt     # Python 依赖清单
-├── frontend/                # 原生极简前端界面
-│   ├── index.html           # 应用骨架与元数据
-│   ├── style.css            # 响应式毛玻璃设计系统
-│   └── app.js               # 交互逻辑与并发上传引擎
-├── config/                  # 运行配置模版
-│   └── settings.example.json
-├── Dockerfile               # 多阶段 Docker 构建文件
-├── docker-compose.yml       # 容器编排文件
-├── docker-entrypoint.sh     # 容器启动引导脚本
-└── README.md
-```
-
----
-
-## ⚙️ 配置说明
-
-服务端配置文件位于 `config/settings.json`（已加入 `.gitignore` 保护隐私），默认配置示例：
-
-```json
-{
-  "webp_enabled": true,
-  "webp_quality": 80,
-  "upload_concurrency": 3,
-  "theme": "auto",
-  "history": []
+```caddy
+catbox.example.com {
+    request_body {
+        max_size 201MB
+    }
+    reverse_proxy 127.0.0.1:7800
 }
 ```
 
-| 参数项 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `webp_enabled` | Boolean | `true` | 是否默认开启 WebP 智能图像转码 |
-| `webp_quality` | Integer | `80` | WebP 压缩质量（范围 1~100） |
-| `upload_concurrency` | Integer | `3` | 并发上传线程数（范围 1~6） |
-| `theme` | String | `auto` | 主题模式（`auto` 跟随系统 / `light` 浅色 / `dark` 深色） |
-| `history` | Array | `[]` | 本地上传历史记录列表 |
+反向代理必须保留 Host、Origin 和 Authorization，不要缓存页面或 API。Cloudflare 等入口可能另有更低的请求大小限制，以实际入口为准。跨站修改会被拒绝；没有开放 CORS。
 
----
+## 源码运行
 
-## 🔌 API 接口规范
+Python 3.11+：
 
-| 请求方法 | 路径 | 描述 |
-| :--- | :--- | :--- |
-| `GET` | `/` | 返回前端单页应用 |
-| `GET` | `/api/health` | 服务健康检查接口 |
-| `GET` | `/api/config` | 获取当前服务端配置 |
-| `POST` | `/api/config` | 更新服务端配置参数 |
-| `POST` | `/api/upload` | 上传文件并转发至 Catbox.moe |
-| `GET` | `/api/history` | 查询本地上传历史 |
-| `POST` | `/api/history/delete` | 批量删除本地历史记录 |
-| `GET` | `/api/export` | 导出完整配置与加密历史 |
-| `POST` | `/api/import` | 导入配置与恢复历史 |
+```sh
+python3 -m venv venv
+venv/bin/pip install -r backend/requirements.lock
+cp .env.example .env
+chmod 600 .env
+# 编辑 .env
+./run.sh
+```
 
----
+Windows 可使用 `venv\Scripts\python -m uvicorn backend.main:app --host 127.0.0.1 --port 7800 --workers 1 --env-file .env`。
 
-## 🔒 安全与隐私准则
+保持 **1 个 worker、1 个实例**：进程内的全局上传上限为设置中的并发数，最多 6。多进程/多副本部署必须另加共享队列和统一配额，不能直接扩容绕过上限。达到并发上限时返回 503，不无限排队。批量请求中的文件按顺序上传；前端可并发发送单文件请求。
 
-- **凭证隔离**：用户的 `userhash` 仅保存于客户端本地，不在服务端做任何明文持久化；
-- **加密备份**：导出的历史数据支持通过 Web Crypto API 进行 AES-GCM 高强度加密；
-- **公开托管注意**：上传的文件将托管于 Catbox.moe 公共服务器，请确保上传内容适宜公开分发。
+## 数据、升级与备份
 
----
+- 设置和最多 500 条历史保存在 `config/settings.db`（SQLite 事务）。文件操作在线程中执行，上传结果批量保存。
+- 首次启动自动读取原来的 `config/settings.json`，迁移合法的设置和 Catbox 历史；不会修改旧文件。重复或不安全的历史地址会被过滤。
+- 旧 JSON 的 Userhash 不会自动作为新版运行凭证。升级时须明确设置 CATBOX_USERHASH，并将包含凭证的旧文件移到受保护的备份目录。
+- 升级前停止写入并备份 config 目录、旧源码版本和服务配置。恢复旧版时同时恢复旧配置，避免丢失升级后新增的数据。
+- 导出只包含设置与历史，始终不含 Userhash 和访问密码。可选浏览器端 AES-GCM 加密，密码至少 12 位；加密需要 HTTPS 或 localhost。
+- 旧浏览器备份中的 client 凭证会被丢弃，浏览器中旧的 catbox-userhash 本地存储会在打开新版页面时清理。
+- 导入最多接受 500 条、2MB 的 JSON 请求，保留已有历史，只追加容量内的有效新记录，并报告实际导入和跳过数量。
+- 清除历史只删除面板记录，不删除 Catbox 上的文件。
 
-## 📄 开源许可证
+## 上传与图片处理
 
-本项目基于 [MIT License](LICENSE) 协议开源。
+单文件与单次请求的文件总大小默认均为 200MiB，单次最多 20 个文件。接收请求时按实际字节数限制，文件使用受控临时文件向上游发送，不先将大文件完整读入内存。
+
+图片最多 2000 万像素；20MiB 以内的静态图片可在服务端压缩或转 WebP。超过转码大小的图片保留原文件并返回提示。关闭 WebP 时保留原格式，处理后更大的同格式文件保留原文件。动图保留原文件。处理失败的回退会明确提示，超出像素上限则拒绝。取消上传会停止浏览器当前请求和后续任务；已被 Catbox 接收的文件可能仍然存在。
+
+## 开发验证
+
+```sh
+venv/bin/pip install -r requirements-dev.txt
+venv/bin/python -m unittest discover -s tests -v
+node --check frontend/app.js
+```
+
+测试使用临时数据目录和模拟 Catbox，不使用实际凭证或真实上传。依赖完整锁定在 backend/requirements.lock；CI 执行安全回归与依赖审计后构建镜像。更新依赖时同时更新直接依赖清单和锁文件，并通过测试及依赖审计。
+
+本项目不提供多用户注册、访客上传或客户端指定 Catbox 账号功能。

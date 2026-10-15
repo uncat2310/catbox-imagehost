@@ -7,7 +7,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="icon" type="image/png" href="/static/catbox-logo.png">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-<title>Catbox 图床</title>
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>个人 Catbox 图床</title>
 <link rel="stylesheet" href="/static/style.css?v=26">
 </head>
 <body>
@@ -15,7 +16,7 @@
 <div class="app">
   <nav class="nav">
     <div class="nav-inner">
-      <span class="nav-title">Catbox 图床</span>
+      <span class="nav-title">个人 Catbox 图床</span>
       <div class="nav-actions">
         <button class="nav-btn" id="btn-theme" aria-label="主题" aria-haspopup="menu" aria-expanded="false">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" id="icon-theme"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
@@ -44,10 +45,11 @@
       <div class="drop-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
       <p class="drop-title">拖放文件到此处</p>
       <p class="drop-sub">支持批量 · 最大 200MB · Ctrl+V 粘贴</p>
-      <p id="no-userhash-warn" class="drop-warn hidden">⚠ 请先在设置中配置 Userhash 后才能上传</p>
+      <p class="field-hint">私人上传面板 · 上传文件仍由 Catbox 公开托管</p>
       <div id="uploading" class="uploading hidden">
         <div class="progress-track"><div class="progress-bar" id="progress-bar"></div></div>
         <p class="progress-label" id="progress-label"></p>
+        <button id="btn-cancel-upload" class="btn btn-secondary btn-sm hidden">取消本批上传</button>
       </div>
     </div>
 
@@ -64,7 +66,7 @@
     </div>
 
     <footer class="app-footer">
-      <span>Catbox 图床 v3.2.0</span>
+      <span>个人 Catbox 图床 v4.0.0</span>
       <span>© 2026 uncat2310</span>
       <a href="https://github.com/uncat2310/catbox-imagehost" target="_blank" rel="noopener">GitHub</a>
     </footer>
@@ -77,7 +79,7 @@
     <div class="history-head">
       <div>
         <h2 id="history-title" class="history-title">上传历史</h2>
-        <p id="history-subtitle" class="history-subtitle">本地上传记录</p>
+        <p id="history-subtitle" class="history-subtitle">服务端上传记录</p>
       </div>
       <button class="panel-close history-close" data-close="history-panel" aria-label="关闭历史记录">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -89,7 +91,7 @@
       <button id="btn-batch-del" class="btn btn-sm btn-danger">清除选中</button>
     </div>
     <div class="panel-scroll history-scroll" id="history-list"></div>
-    <p id="history-note" class="field-hint history-note hidden">仅清除本地记录，不影响 Catbox 上已上传的文件</p>
+    <p id="history-note" class="field-hint history-note hidden">仅清除服务端历史记录，不影响 Catbox 上已上传的文件</p>
   </section>
 </div>
 
@@ -105,26 +107,21 @@
     <div class="sheet-body">
       <section class="section">
         <h3 class="section-title">使用说明</h3>
-        <p class="section-desc">本工具对接 <a href="https://catbox.moe" target="_blank" rel="noopener">Catbox.moe</a> 免费图床，需注册账号获取 Userhash 后使用。</p>
+        <p class="section-desc">这是你的私人上传面板，使用部署时配置的 Catbox 账号。</p>
         <div class="help-list">
-          <div class="help-item">注册 <a href="https://catbox.moe/user/manage.php" target="_blank" rel="noopener">Catbox 账号</a>，在管理页顶部获取 <strong>Userhash</strong></div>
-          <div class="help-item">填入后即可上传文件，<strong>文件管理请前往 Catbox 后台</strong></div>
-          <div class="help-item">数据仅保存在浏览器，不同设备需各自配置</div>
+          <div class="help-item">账号凭证由服务器管理，浏览器和备份不保存凭证</div>
+          <div class="help-item">面板访问需要独立密码，<strong>文件管理请前往 Catbox 后台</strong></div>
+          <div class="help-item">上传历史与设置保存在服务器，最多保留 500 条历史</div>
+          <div class="help-item">面板为私人使用，上传到 Catbox 的文件链接仍然公开可访问</div>
         </div>
       </section>
       <div class="divider"></div>
       <section class="section">
-        <h3 class="section-title">Catbox 账号</h3>
+        <h3 class="section-title">账号状态</h3>
         <div class="field">
-          <label class="field-label">Userhash</label>
-          <input type="text" id="input-userhash" class="field-input" placeholder="必填，在 Catbox 管理页顶部获取">
-          <p class="field-hint">仅保存在当前浏览器，不会上传到服务端</p>
+          <span class="badge">已在部署时配置</span>
+          <p class="field-hint">更换账号请更新服务器环境配置并重启服务</p>
         </div>
-        <div class="field">
-          <label class="field-label">状态</label>
-          <span id="userhash-badge" class="badge badge-dim">未设置</span>
-        </div>
-        <button id="btn-save-userhash" class="btn btn-primary full-width">保存</button>
       </section>
       <div class="divider"></div>
       <section class="section">
@@ -161,13 +158,13 @@
           <button id="btn-import" class="btn btn-secondary flex-fill">恢复备份</button>
         </div>
         <input type="file" id="import-file" hidden accept=".json">
-        <p class="field-hint">加密备份会自动识别并提示输入密码解密</p>
+        <p class="field-hint">备份不含账号或访问密码；加密密码至少 12 位，加密功能需要 HTTPS</p>
       </section>
     </div>
   </div>
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/static/app.js?v=26"></script>
+<script src="/static/app.js?v=40"></script>
 </body>
 </html>
