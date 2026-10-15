@@ -1014,6 +1014,77 @@ body.settings-open #btn-settings svg {
   padding: 0 22px 36px;
 }
 
+.account-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 2px 19px;
+  color: var(--t2);
+  font-size: 13px;
+}
+
+.account-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.account-tag {
+  margin-left: auto;
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: var(--glass-soft);
+  color: var(--t3);
+  font-size: 11px;
+}
+
+.settings-card {
+  margin-bottom: 14px;
+  padding: 18px;
+  border: 1px solid var(--bor);
+  border-radius: 18px;
+  background: var(--glass-soft);
+}
+
+.settings-card-title {
+  margin: 0 0 18px;
+  color: var(--t2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-label {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-toggle-row, .settings-value-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-range-field {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--bor);
+}
+
+.settings-value {
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-card .field-range { margin: 17px 0 8px; }
+.settings-save { padding-top: 5px; }
+.settings-sync-note { margin: 12px 0 0; text-align: center; color: var(--t3); font-size: 11px; line-height: 1.5; }
+
 .section {
   padding: 10px 0 14px;
 }

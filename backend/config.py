@@ -3,10 +3,9 @@ import json
 import os
 import sqlite3
 from contextlib import closing, contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from pydantic import ValidationError
-from backend.models import Backup, HistoryEntry, SettingsPatch, HISTORY_LIMIT
+from backend.models import HistoryEntry, SettingsPatch, HISTORY_LIMIT
 
 CONFIG_DIR = Path(os.environ.get("CONFIG_DIR", Path(__file__).parent.parent / "config"))
 DEFAULT_SETTINGS = {"webp_enabled": False, "webp_quality": 80, "upload_concurrency": 3, "theme": "auto"}
@@ -86,26 +85,3 @@ def remove_history_batch(urls: list[str]):
         exclude = set(urls)
         cfg["history"] = [entry for entry in cfg.get("history", []) if entry["url"] not in exclude]
         return before - len(cfg["history"])
-
-
-def export_data():
-    with _transaction() as cfg:
-        return {"version": "4.0", "exported_at": datetime.now(timezone.utc).isoformat(),
-                "settings": {key: cfg.get(key, default) for key, default in DEFAULT_SETTINGS.items()},
-                "history": list(cfg.get("history", []))}
-
-
-def import_data(data: dict):
-    backup = Backup.model_validate(data)
-    with _transaction() as cfg:
-        cfg.update(backup.settings.model_dump(exclude_none=True))
-        history = cfg.get("history", [])
-        existing = {entry["url"] for entry in history}
-        unique = []
-        for entry in backup.history:
-            if entry.url not in existing:
-                existing.add(entry.url)
-                unique.append(entry.model_dump(exclude_none=True))
-        retained = unique[:max(0, HISTORY_LIMIT - len(history))]
-        cfg["history"] = history + retained
-        return {"ok": True, "imported_history": len(retained), "skipped_history": len(backup.history) - len(retained)}

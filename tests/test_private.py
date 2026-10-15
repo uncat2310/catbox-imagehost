@@ -12,6 +12,8 @@ from PIL import Image
 
 from backend import config, main
 from backend.image_processor import process_image, is_image, ImageLimitError
+from backend.models import HistoryEntry
+from pydantic import ValidationError
 
 PASSWORD = "test-only-password-with-32-characters"
 USERHASH = "test-only-server-userhash"
@@ -45,13 +47,16 @@ class PrivateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.get("/", auth=("admin", "wrong"))).status_code, 401)
         self.assertEqual((await self.client.get("/")).status_code, 200)
 
-    async def test_secrets_never_exported_or_present_in_frontend(self):
-        for path in ("/", "/static/app.js", "/api/config", "/api/export", "/api/history"):
+    async def test_secrets_never_present_in_frontend(self):
+        for path in ("/", "/static/app.js", "/api/config", "/api/history"):
             response = await self.client.get(path)
             self.assertNotIn(USERHASH, response.text)
             self.assertNotIn(PASSWORD, response.text)
         page = (await self.client.get("/")).text
         self.assertNotIn('id="input-userhash"', page)
+        self.assertNotIn('使用说明', page)
+        self.assertNotIn('btn-export', page)
+        self.assertNotIn('btn-import', page)
 
     async def test_cross_origin_and_security_headers(self):
         response = await self.client.post('/api/config', json={'theme': 'dark'}, headers={'Origin': 'https://attacker.test'})
@@ -66,16 +71,13 @@ class PrivateTests(unittest.IsolatedAsyncioTestCase):
         for data in ({'theme': []}, {'webp_quality': 101}, {'upload_concurrency': 0}, {'userhash': 'override'}):
             self.assertEqual((await self.client.post('/api/config', json=data)).status_code, 422)
         for url in ('x" onerror="alert(1)', 'javascript:alert(1)', 'https://attacker.test/a.png', URL + '?x="'):
-            response = await self.client.post('/api/import', json={'history': [{'url': url}]})
-            self.assertEqual(response.status_code, 422)
+            with self.assertRaises(ValidationError):
+                HistoryEntry.model_validate({'url': url})
         self.assertEqual((await self.client.post('/api/history/delete', json={'urls': [[]]})).status_code, 422)
 
-    async def test_backup_strips_legacy_client_credentials(self):
-        result = await self.client.post('/api/import', json={'client': {'userhash': 'legacy-secret'}, 'history': [{'url': URL}]})
-        self.assertEqual(result.status_code, 200)
-        exported = (await self.client.get('/api/export')).json()
-        self.assertNotIn('client', exported)
-        self.assertNotIn('legacy-secret', json.dumps(exported))
+    async def test_browser_backup_routes_are_removed(self):
+        self.assertEqual((await self.client.get('/api/export')).status_code, 404)
+        self.assertEqual((await self.client.post('/api/import', json={})).status_code, 404)
 
     async def test_upload_uses_only_server_credential_and_keeps_history(self):
         observed = []
@@ -106,12 +108,12 @@ class PrivateTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.client.post('/api/upload', files={'files': ('after.txt', b'hello')})).status_code, 200)
 
     async def test_body_size_limits_with_and_without_length(self):
-        response = await self.client.post('/api/import', content=b'{}', headers={'Content-Length': str(3 * 1024 * 1024), 'Content-Type': 'application/json'})
+        response = await self.client.post('/api/config', content=b'{}', headers={'Content-Length': str(3 * 1024 * 1024), 'Content-Type': 'application/json'})
         self.assertEqual(response.status_code, 413)
         async def chunks():
             for _ in range(3):
                 yield b'x' * (1024 * 1024)
-        response = await self.client.post('/api/import', content=chunks(), headers={'Content-Type': 'application/json'})
+        response = await self.client.post('/api/config', content=chunks(), headers={'Content-Type': 'application/json'})
         self.assertEqual(response.status_code, 413)
         with patch.object(main.app.state, 'max_size', 4):
             response = await self.client.post('/api/upload', files={'files': ('large.txt', b'12345')})
@@ -119,11 +121,7 @@ class PrivateTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_retention_counts_and_concurrent_persistence(self):
         entries = [{'url': f'https://files.catbox.moe/{i}.png'} for i in range(500)]
-        response = await self.client.post('/api/import', json={'history': entries})
-        self.assertEqual(response.json()['imported_history'], 500)
-        response = await self.client.post('/api/import', json={'history': [{'url': URL}]})
-        self.assertEqual(response.json()['imported_history'], 0)
-        self.assertEqual(response.json()['skipped_history'], 1)
+        await asyncio.to_thread(config.add_history_batch, entries)
         await asyncio.to_thread(config.add_history_batch, [{'url': URL}])
         self.assertEqual(len(config.get_history()), 500)
         config.remove_history_batch([entry['url'] for entry in entries] + [URL])

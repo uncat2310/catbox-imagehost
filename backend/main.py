@@ -1,7 +1,6 @@
 """Single-owner Catbox dashboard. Credentials belong to the deployment."""
 import asyncio
 import hashlib
-import json
 import mimetypes
 import os
 from contextlib import asynccontextmanager
@@ -10,17 +9,17 @@ from pathlib import Path
 
 import aiohttp
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import UploadFile
 
 from backend import config
 from backend.catbox_client import upload_file, CatboxError
 from backend.image_processor import is_image, process_image, ImageLimitError
-from backend.models import Backup, HistoryDelete, SettingsPatch
+from backend.models import HistoryDelete, SettingsPatch
 from backend.security import PrivateAccess
 
-APP_VERSION = "4.0.0"
+APP_VERSION = "4.1.0"
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 MAX_IMAGE_INPUT = 20 * 1024 * 1024
 
@@ -149,17 +148,3 @@ async def history():
 @app.post("/api/history/delete")
 async def delete_history(data: HistoryDelete):
     return {"ok": True, "deleted": await asyncio.to_thread(config.remove_history_batch, data.urls)}
-
-
-@app.get("/api/export")
-async def export():
-    data = await asyncio.to_thread(config.export_data)
-    return Response(json.dumps(data, ensure_ascii=False, indent=2), media_type="application/json",
-                    headers={"Content-Disposition": "attachment; filename=catbox_backup.json"})
-
-
-@app.post("/api/import")
-async def import_backup(data: Backup):
-    result = await asyncio.to_thread(config.import_data, data.model_dump())
-    app.state.upload_limit = (await asyncio.to_thread(config.get_settings))["upload_concurrency"]
-    return result

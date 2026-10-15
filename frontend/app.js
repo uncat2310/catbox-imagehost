@@ -4,7 +4,6 @@ const Q = s => document.querySelector(s);
 const QA = (s, fn) => document.querySelectorAll(s).forEach(fn);
 
 const LS_KEY = 'catbox';
-const ENC_MAGIC = 'CATBOX_ENC_V1:';
 const THEMES = new Set(['auto', 'light', 'dark']);
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const DEFAULT_CONFIG = { webp_enabled: false, webp_quality: 80, upload_concurrency: 3, theme: 'auto' };
@@ -51,10 +50,6 @@ const el = {
   uploadConcurrency: Q('#input-upload-concurrency'),
   concurrencyValue: Q('#concurrency-value'),
   saveImageSettingsBtn: Q('#btn-save-image-settings'),
-  encryptPass: Q('#input-encrypt-pass'),
-  exportBtn: Q('#btn-export'),
-  importBtn: Q('#btn-import'),
-  importFile: Q('#import-file'),
   toast: Q('#toast'),
 };
 
@@ -219,6 +214,7 @@ async function loadConfig({ applyTheme = true } = {}) {
 }
 
 async function saveImageSettings() {
+  if (el.saveImageSettingsBtn.disabled) return;
   const body = normalizeConfig({
     ...state.config,
     webp_enabled: el.webpEnabled.checked,
@@ -226,6 +222,8 @@ async function saveImageSettings() {
     upload_concurrency: el.uploadConcurrency.value,
   });
 
+  el.saveImageSettingsBtn.disabled = true;
+  el.saveImageSettingsBtn.textContent = '保存中…';
   try {
     const response = await fetch('/api/config', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
     const data = await response.json();
@@ -234,6 +232,9 @@ async function saveImageSettings() {
     toast('上传设置已保存');
   } catch {
     toast('保存失败', true);
+  } finally {
+    el.saveImageSettingsBtn.disabled = false;
+    el.saveImageSettingsBtn.textContent = '保存设置';
   }
 }
 
@@ -530,114 +531,6 @@ async function deleteHistory(urls, okMsg) {
   }
 }
 
-async function buildExport() {
-  const response = await fetch('/api/export');
-  if (!response.ok) throw new Error('导出失败');
-  return response.json();
-}
-
-async function encrypt(plain, password) {
-  const encoder = new TextEncoder();
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const material = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveKey']);
-  const key = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' },
-    material,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt'],
-  );
-  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoder.encode(plain));
-  const bytes = new Uint8Array(salt.length + iv.length + encrypted.byteLength);
-  bytes.set(salt, 0);
-  bytes.set(iv, salt.length);
-  bytes.set(new Uint8Array(encrypted), salt.length + iv.length);
-  return ENC_MAGIC + bytesToBase64(bytes);
-}
-
-async function decrypt(payload, password) {
-  if (!payload.startsWith(ENC_MAGIC)) throw new Error('非加密文件');
-  const raw = base64ToBytes(payload.slice(ENC_MAGIC.length));
-  const salt = raw.slice(0, 16);
-  const iv = raw.slice(16, 28);
-  const encrypted = raw.slice(28);
-  const encoder = new TextEncoder();
-  const material = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveKey']);
-  const key = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' },
-    material,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['decrypt'],
-  );
-  return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, encrypted));
-}
-
-function download(name, content, type) {
-  const url = URL.createObjectURL(new Blob([content], { type }));
-  const link = Object.assign(document.createElement('a'), { href: url, download: name });
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-async function exportData() {
-  try {
-    const json = JSON.stringify(await buildExport(), null, 2);
-    const pass = el.encryptPass.value;
-    if (pass) {
-      if (pass.length < 12) return toast('备份密码至少 12 位', true);
-      if (!crypto.subtle) return toast('加密备份需要 HTTPS 或 localhost', true);
-      download(`catbox_enc_${today()}.json`, await encrypt(json, pass), 'text/plain');
-      toast('加密备份已下载');
-    } else {
-      download(`catbox_backup_${today()}.json`, json, 'application/json');
-      toast('导出完成（明文）');
-    }
-  } catch {
-    toast('导出失败', true);
-  }
-}
-
-async function importData() {
-  const file = el.importFile.files[0];
-  if (!file) {
-    el.importFile.value = '';
-    return;
-  }
-
-  try {
-    if (file.size > 2 * 1024 * 1024) throw new Error('备份文件最大 2MB');
-    const text = await file.text();
-    const json = await parseBackup(text);
-    const backup = { settings: json.settings || {}, history: json.history || [] };
-    const response = await fetch('/api/import', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(backup) });
-    const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error(data.detail || '导入失败');
-
-    if (json.client?.theme) setTheme(json.client.theme);
-    await loadConfig();
-    toast(`导入成功：${data.imported_history || 0} 条${data.skipped_history ? `，跳过 ${data.skipped_history} 条重复或超出容量的记录` : ''}`);
-  } catch (error) {
-    toast(error.message || '导入失败', true);
-  } finally {
-    el.importFile.value = '';
-  }
-}
-
-async function parseBackup(text) {
-  if (!text.startsWith(ENC_MAGIC)) return JSON.parse(text);
-  const pass = prompt('这是加密备份，请输入密码：');
-  if (!pass) throw new Error('已取消');
-  try {
-    return JSON.parse(await decrypt(text, pass));
-  } catch {
-    throw new Error('密码错误');
-  }
-}
-
 function openSettings() {
   if (el.settingsSheet.classList.contains('open')) return;
   document.body.classList.add('settings-open');
@@ -777,16 +670,12 @@ function bindEvents() {
     el.concurrencyValue.textContent = el.uploadConcurrency.value;
   });
 
-  el.exportBtn.addEventListener('click', exportData);
-  el.importBtn.addEventListener('click', () => el.importFile.click());
-  el.importFile.addEventListener('change', importData);
 }
 
 function goodResults() {
   return state.batchResults.filter(result => result.url);
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
 
 function h(value) {
   const div = document.createElement('div');
@@ -805,19 +694,6 @@ function safeImageUrl(value) {
 function formatTime(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('zh-CN');
-}
-
-function bytesToBase64(bytes) {
-  let binary = '';
-  const size = 0x8000;
-  for (let i = 0; i < bytes.length; i += size) {
-    binary += String.fromCharCode(...bytes.slice(i, i + size));
-  }
-  return btoa(binary);
-}
-
-function base64ToBytes(value) {
-  return Uint8Array.from(atob(value), char => char.charCodeAt(0));
 }
 
 function isInputFocused() {

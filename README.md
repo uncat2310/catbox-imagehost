@@ -62,9 +62,10 @@ Windows 可使用 `venv\Scripts\python -m uvicorn backend.main:app --host 127.0.
 - 首次启动自动读取原来的 `config/settings.json`，迁移合法的设置和 Catbox 历史；不会修改旧文件。重复或不安全的历史地址会被过滤。
 - 旧 JSON 的 Userhash 不会自动作为新版运行凭证。升级时须明确设置 CATBOX_USERHASH，并将包含凭证的旧文件移到受保护的备份目录。
 - 升级前停止写入并备份 config 目录、旧源码版本和服务配置。恢复旧版时同时恢复旧配置，避免丢失升级后新增的数据。
-- 导出只包含设置与历史，始终不含 Userhash 和访问密码。可选浏览器端 AES-GCM 加密，密码至少 12 位；加密需要 HTTPS 或 localhost。
-- 旧浏览器备份中的 client 凭证会被丢弃，浏览器中旧的 catbox-userhash 本地存储会在打开新版页面时清理。
-- 导入最多接受 500 条、2MB 的 JSON 请求，保留已有历史，只追加容量内的有效新记录，并报告实际导入和跳过数量。
+- 设置与历史由服务端统一保存，其他设备刷新或重新打开面板即可读取。设置面板只保留账号绑定状态、图片处理与上传速度。
+- v4.1 已移除浏览器备份/恢复、加密代码与 `/api/export`、`/api/import` 接口；日常使用不需要手动同步。
+- 浏览器中旧的 catbox-userhash 本地存储会在打开新版页面时清理。
+- 服务器备份由运维执行：停止服务后备份整个 config 目录，或使用 SQLite backup API 创建一致性快照；环境文件独立备份并限制权限。恢复时停止服务，再恢复数据库和所需环境配置。
 - 清除历史只删除面板记录，不删除 Catbox 上的文件。
 
 ## 上传与图片处理
@@ -79,8 +80,11 @@ Windows 可使用 `venv\Scripts\python -m uvicorn backend.main:app --host 127.0.
 venv/bin/pip install -r requirements-dev.txt
 venv/bin/python -m unittest discover -s tests -v
 node --check frontend/app.js
+venv/bin/python scripts/check_secrets.py --history
 ```
 
-测试使用临时数据目录和模拟 Catbox，不使用实际凭证或真实上传。依赖完整锁定在 backend/requirements.lock；CI 执行安全回归与依赖审计后构建镜像。更新依赖时同时更新直接依赖清单和锁文件，并通过测试及依赖审计。
+测试使用临时数据目录和模拟 Catbox，不使用实际凭证或真实上传。依赖完整锁定在 backend/requirements.lock；CI 执行历史凭证检查、回归测试、依赖审计、实际容器启动及重启验证后构建多架构镜像。更新依赖时同时更新直接依赖清单和锁文件，并通过测试及依赖审计。
+
+合并到 main 后自动发布 GHCR 的 latest、main 和完整提交 SHA 标签；版本标签发布对应版本镜像。PR 只检查和构建，不登录或推送镜像。Actions 不连接 VPS、不接收运行凭证，也不自动部署服务器。按需更新时选择通过检查的版本或不可变镜像 digest，并继续挂载原数据目录。
 
 本项目不提供多用户注册、访客上传或客户端指定 Catbox 账号功能。

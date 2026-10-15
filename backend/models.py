@@ -1,4 +1,4 @@
-"""Validated public settings and credential-free backup records."""
+"""Validated settings and safe history records."""
 import re
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -31,13 +31,6 @@ class HistoryEntry(BaseModel):
     processed: bool = False
     warning: str | None = Field(default=None, max_length=200)
     _url = field_validator("url")(safe_url)
-
-
-class Backup(BaseModel):
-    # Accept older backups, but discard their client credentials.
-    model_config = ConfigDict(extra="ignore")
-    settings: SettingsPatch = Field(default_factory=SettingsPatch)
-    history: list[HistoryEntry] = Field(default_factory=list, max_length=HISTORY_LIMIT)
 
 
 class HistoryDelete(BaseModel):
