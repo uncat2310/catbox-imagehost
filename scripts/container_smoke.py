@@ -49,6 +49,9 @@ try:
     command = subprocess.check_output(['docker', 'exec', name, 'sh', '-c', "grep '^Uid:' /proc/1/status"]).decode().split()
     assert command[1] != '0', 'Application is running as root'
     subprocess.run(['docker', 'restart', name], check=True, capture_output=True)
+    # Docker can allocate a new host port when an ephemeral mapping restarts.
+    mapping = subprocess.check_output(['docker', 'port', name, '7800']).decode().strip()
+    port = int(mapping.rsplit(':', 1)[1])
     for _ in range(30):
         try:
             if request(port, '/api/history', True)[0] == 200:
@@ -59,5 +62,9 @@ try:
     else:
         raise RuntimeError('Container failed after restart')
     print('Container authentication, private settings, non-root process, and restart checks passed.')
+except Exception:
+    logs = subprocess.run(['docker', 'logs', name], capture_output=True, text=True)
+    print((logs.stdout + logs.stderr).replace(password, '[REDACTED]').replace(credential, '[REDACTED]'))
+    raise
 finally:
     subprocess.run(['docker', 'rm', '-f', name], check=False, capture_output=True)
